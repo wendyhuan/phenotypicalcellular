@@ -1,0 +1,429 @@
+---
+title: "Wait, is this cancerous?"
+author: "TUT201-Ramy 1: Vivian Deng, Wendy Huang, Jaehyeong Jang, and Dorothy Lee."
+date: "December 8, 2022"
+output:
+  beamer_presentation:
+    theme: Pittsburgh
+    colortheme: orchid
+    fonttheme: structurebold
+    slide_level: 2
+    includes: null
+  ioslides_presentation: default
+  slidy_presentation: default
+classoption: aspectratio=169
+fontsize: 10pt
+urlcolor: blue
+---
+
+```{r echo=FALSE, eval=TRUE, include=TRUE, message=FALSE, warning=FALSE}
+# regarding `library()`: you don't have to `library(knitr)` if you `knitr::`
+knitr::opts_chunk$set(eval=TRUE, include=TRUE, echo=TRUE, message=FALSE, warning=FALSE)
+
+# knitting will default to pdf (rather than, e.g., html)
+knitr::opts_chunk$set(dev='pdf')
+
+# Defines a new code chunk `parameter=argument` option which will allow the
+# size of printed code+output to be controlled using latex text size names:
+# https://www.overleaf.com/learn/latex/Font_sizes%2C_families%2C_and_styles#Reference_guide
+def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- def.chunk.hook(x, options)
+  ifelse(options$size != "normalsize", paste0("\n \\", options$size,"\n\n", x, "\n\n \\normalsize"), x)
+})
+
+color_block = function(color) {
+  function(x, options) sprintf('\\color{%s}\\begin{verbatim}%s\\end{verbatim}',
+                               color, x)
+}
+knitr::knit_hooks$set(message = color_block('red'))
+knitr::knit_hooks$set(warning = color_block('red'))
+knitr::knit_hooks$set(error = color_block('red'))
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# echo=FALSE will stop the code chunk from appearing in the knit document
+# warning=FALSE and message=FALSE will stop R messages from appearing in the knit document
+
+library(tidyverse)
+library(rpart)
+library(partykit)
+library(knitr)
+```
+
+## Introduction
+
+- Attending STA130, we learned statistics and data science are centered around data analysis. Data analysis aids our understanding of garnered information for the advancement of science and civilization. Human health is a major field within scientific research that is heavily concerned with the overall well-being of individuals. In our data analysis, we focus on one disease that has troubled scientists and families – cancerous cells.
+
+- The provided bioinformatics data set, “STA130_Course_Project.csv”, consisted of 540792 observations and 34 variables. The observations contained data on cells that were experimented with under specific conditions, such as the 22 AP-1 transcription factors which resulted in 4 phenotype indicator proteins’ levels. These measurements were used to determine the cell phenotype of each cell after its transformation as undifferentiated, neural crest-like, transitory, or melanocytic. The data set represents cells undergoing treatment at different stages of cancer progression i.e. the phenotypical transformation of cellular proteomic homeostasis.
+
+
+## Objectives
+
+Understanding the corresponding phenotypical transformation of cellular homeostasis to changes in various experimental conditions such as treatment, doses, and timepoints etc.
+
+\vspace{.15cm}
+- Question 2: Are protein levels at time t different between experimental conditions $\sf{X_{1}}$ and $\sf{X_{2}}$? (Two-sample Hypothesis Testing)
+  + Understanding the corresponding phenotypic transformation of cellular homeostasis to changes in drugs
+
+\vspace{.15cm}
+- Question 3: At time t in experimental condition x, what is the relationship between different proteins? (Correlation Estimation)
+  + Figuring out the potential relationships between AP-1 proteins and cellular phenotypes.
+    + How to induce phenotypic transformation away from malicious states?
+    + Correlations between different proteins and phenotypes.
+
+\vspace{.15cm}
+- Question 4: Can we predict cellular phenotypic outcomes (values/states) from transcription factors (TF)? (Regression/Classification)
+  + To generate an empirical, data-driven identification system to spot deleterious cellular states
+
+## Data Summary
+
+:::columns
+::::column
+
+```{r size="footnotesize"}
+set.seed(197)
+data <- read_csv("STA130_Course_Project.csv",
+                 show_col_types = FALSE)
+data_use <- data %>% 
+  rename(id='...1') %>% 
+  unite(col = 'exp_cond', c(Drugs, Doses), 
+        remove=FALSE) %>% mutate(
+    cell_phenotype= case_when(
+      MiTFg < 3.650 & AXL > 3.411 & Sox10 < 3.607
+      & NGFR < 3.056 ~ 'Undifferentiated',
+      MiTFg < 3.650 & AXL > 3.411 & Sox10 > 3.607
+      & NGFR > 3.056 ~ 'Neural Crest-Like',
+      MiTFg > 3.650 & AXL < 3.411 & Sox10 > 3.607
+      & NGFR > 3.056 ~ 'Transitory',
+      MiTFg > 3.650 & AXL < 3.411 & Sox10 < 3.607
+      & NGFR > 3.056 ~ 'Melanocytic',
+      MiTFg == 3.650 & AXL == 3.411 & Sox10 == 3.607
+      & NGFR == 3.056 ~ 'Not Determined'
+    )
+  )
+```
+
+::::
+::::column
+
+\vspace{0.01cm}
+- This given data frame is rendered into a tidy dataframe, which consists of data on 22 AP-1 transcription factors, timepoints of the treatment, doses of the treatment, the type of drugs (treatment), and etc.
+
+- We created a new column called “cell_phenotype” to categorize every observation into one of the five groups: “Undifferentiated,” “Neural Crest-Like,” “Transitory,” “Melanocytic,” and “Not Determined.” This separation is done based on the levels of MiTFg, AXL, Sox10, NGFR for each observation. This dataframe is stored as <data_use>. Then, each observations will be assigned into “Benign” if it is "Undifferenciated", and the rest will be assigned to "Malicious" -- "Not Determined" are exempted
+
+::::
+:::
+
+## Statistical Methods -- 2 Sample Hypothesis Testing
+
+\vspace{0.05cm}
+- Null hypothesis: Vem and Vem + Tram do not affect median MiTFg levels at each time point for each cell phenotype. The alpha significance level is set to 0.05. 
+
+- Generated test data which we selected and filtered MiTFg levels, time point , drug and cell phenotype
+
+- The test statistic is the calculated difference between median of two groups (Vem and Vem + Tram)
+
+- 1000 simulations are run, which the median MiTFg levels are calculated after each simulation for each drug and time point
+
+- P-value calculated using the sampling distribution of our test statistic under the null hypothesis, generating a corresponding histogram.
+
+- For each time point and each cell phenotype, repeat the hypothesis test and calculate the p-value. The p-value is compared at each time point for each cell phenotype and any difference is observed. 
+
+
+
+## Results -- 2-Sample Hypothesis Tests
+\begin{center}
+\includegraphics[trim=0 0 0 0,clip, width=1\textwidth]{14.png}
+\end{center}
+
+
+## Results -- 2-Sample Hypothesis Tests (Continued)
+\vspace{0.05cm}
+- Each of the histograms are centered at 0.00
+  + X-axis show the median difference between the MiTFg level for cells with different treatment
+  + Y-axis shows the number of occurrences for each median difference.
+  
+\begin{center}
+\includegraphics[trim=0 0 0 0,clip, width=1\textwidth]{a1.png}
+\end{center}
+
+## Conclusion -- Question 2
+
+\vspace{0.05cm}
+Question 2: Are protein levels at time t different between experimental conditions x1 and x2? -> Two-sample Hypothesis Testing
+
+- Differences in drugs and time points are variables that cause changes to the median of MiTFg levels.
+
+- Comparing 4 cell phenotypes, Tram has an significant effect of reducing the median value of MITFg at time point of 15 hours after the experiment starts.
+
+- As shown in our results, the effects of Tram on MiTFg levels are ambiguous. As such, we cannot conclude whether it has a positive or negative effect on cellular homeostasis. 
+
+- As shown in our results, the effect of adding drugs is becoming less noticeable as the cells are more cancerous, which may be caused by genetic mutation in the cancerous cells that allowed them to develop resistance to treatment. In particular, Drugs which are added to Melanocytic and transitory cells are not as effective as they used to be in undifferentiated cells.
+
+- Mutations may have caused cancer cells to develop resistance to treatment over longer time periods, decreasing the efficacy of treatments. 
+
+
+## Statistical Methods -- Correlation Estimation
+
+\vspace{0.05cm}
+- Two phenotype indicators (MiTFg and AXL) are chosen to investigate the correlation whether Tram has an effect on the correlation between these two.
+  + MiTFg and AXL are suitable phenotype indicators for this correlation estimation as these two are the only indicators that have the same “HIGH” and “LOW” relationship when a cell is considered “Benign” or “Malicious”
+    + These two were chosen as they were the only two indicators that had a consistent relationship when classifying the different categories
+    
+- Separated the data set into two groups: Vem and Vem + Tram
+  + Vem serves as the control group
+
+- We set the y-axis to be the level of AXL and the x-axis to be the level of MiTFg, the relationship between the two variables varies across timepoints. 
+
+- The overall correlation between AXL and MiTFg is calculated and compared between the two groups (Vem and Vem + Tram)
+
+- Slopes of the AXL vs. MiTFg plot for each timepoint are computed and compared. 
+
+
+
+## Results -- Correlation Estimation
+
+:::columns
+::::column
+When only Vem is applied
+```{r size="footnotesize", echo=FALSE}
+data_test <- data %>% filter(Drugs == "Vem") %>% select(Timepoint, Drugs, Doses, MiTFg, AXL)
+data_test %>% ggplot(aes(x=MiTFg, y=AXL, color = Timepoint)) + geom_point() + geom_smooth(method=lm, se=FALSE) + 
+  labs(title="Association between AXL and MiTFg levels after application of Vem only (Basecase)")
+
+```
+
+::::
+::::column
+Vem and Tram are applied
+```{r size="footnotesize", echo=FALSE}
+data_test <- data %>% filter(Drugs == "Vem+Tram") %>% select(Timepoint, Drugs, Doses, MiTFg, AXL)
+data_test %>% ggplot(aes(x=MiTFg, y=AXL, color = Timepoint)) + geom_point() + geom_smooth(method=lm, se=FALSE) + 
+  labs(title="Association between AXL and MiTFg levels after application of Vem and Tram (Treatment)")
+
+```
+
+::::
+:::
+
+## Results -- Correlation Estimation (Continued)
+
+:::columns
+::::column
+Vem
+```{r size="footnotesize", echo=FALSE}
+data_test <- data %>% filter(Drugs == "Vem") %>% select(Timepoint, Drugs, Doses, MiTFg, AXL)
+cat("Slope when Timepoint = 0.5 h: ", coef(lm(AXL~MiTFg, data=data_test %>% filter(Timepoint == "0.5 h")))[2])
+cat("Slope when Timepoint = 2 h: ", coef(lm(AXL~MiTFg, data=data_test %>% filter(Timepoint == "2 h")))[2])
+cat("Slope when Timepoint = 6 h: ", coef(lm(AXL~MiTFg, data=data_test %>% filter(Timepoint == "6 h")))[2])
+cat("Slope when Timepoint = 15 h: ", coef(lm(AXL~MiTFg, data=data_test %>% filter(Timepoint == "15 h")))[2])
+cat("Slope when Timepoint = 24 h: ", coef(lm(AXL~MiTFg, data=data_test %>% filter(Timepoint == "24 h")))[2])
+cat("Slope when Timepoint = 72 h: ", coef(lm(AXL~MiTFg, data=data_test %>% filter(Timepoint == "72 h")))[2])
+cat("Slope when Timepoint = 120 h: ", coef(lm(AXL~MiTFg, data=data_test %>% filter(Timepoint == "120 h")))[2])
+cat("Correlation Coefficient: ", cor(data_test$MiTFg, data_test$AXL))
+
+```
+
+::::
+::::column
+Vem+Tram
+```{r size="footnotesize", echo=FALSE}
+data_test <- data %>% filter(Drugs == "Vem+Tram") %>% select(Timepoint, Drugs, Doses, MiTFg, AXL)
+
+cat("Slope when Timepoint = 0.5 h: ", coef(lm(AXL~MiTFg, data=data_test %>% filter(Timepoint == "0.5 h")))[2])
+cat("Slope when Timepoint = 2 h: ", coef(lm(AXL~MiTFg, data=data_test %>% filter(Timepoint == "2 h")))[2])
+cat("Slope when Timepoint = 6 h: ", coef(lm(AXL~MiTFg, data=data_test %>% filter(Timepoint == "6 h")))[2])
+cat("Slope when Timepoint = 15 h: ", coef(lm(AXL~MiTFg, data=data_test %>% filter(Timepoint == "15 h")))[2])
+cat("Slope when Timepoint = 24 h: ", coef(lm(AXL~MiTFg, data=data_test %>% filter(Timepoint == "24 h")))[2])
+cat("Slope when Timepoint = 72 h: ", coef(lm(AXL~MiTFg, data=data_test %>% filter(Timepoint == "72 h")))[2])
+cat("Slope when Timepoint = 120 h: ", coef(lm(AXL~MiTFg, data=data_test %>% filter(Timepoint == "120 h")))[2])
+cat("Correlation Coefficient: ", cor(data_test$MiTFg, data_test$AXL))
+```
+
+::::
+:::
+
+
+## Results -- Correlation Estimation (Continued)
+\vspace{0.05cm}
+- The magnitude of change in slope before and after the application of drug Tram is small. For example, at 0.5h, the slope changed from -0.0449 to -0.046.
+
+- One anomaly is at 15 h:
+  + the slope of the line on the AXL versus MiTFg graph is 0.0445
+  + when Vem + Tram are both applied, the slope decreases to -0.025.
+  
+- In general, usage of Tram increases the slope of AXL versus MiTFg for most of the timepoints with some exceptions.
+
+- However, the correlation coefficient decreases after the application of Tram, which means that the effect of MiTFg level on AXL level is lessened.
+
+
+## Conclusion -- Question 3
+
+\vspace{0.05cm}
+Question 3: At time t in experimental condition x, what is the relationship between different proteins? - > Correlation Estimation
+
+- The correlation between AXL and MiTFg has decreased: the correlation coefficient decreases from 0.48 to 0.223 when only Vem is applied and after applying the both Vem + Tram. 
+
+- A similar relationship is shown by our two-sample hypothesis testing, which showed the drug Tram is effective at certain timepoints for different phenotype indicators. 
+  + This indicates that the level of AXL is not only dependent on the level of MiTFg, but also dependent on timepoints once drug Tram is applied. This lessens the direct correlation between AXL and MiTFg since the timepoints may be a confounding variable once the drug Tram is applied.
+
+
+
+## Statistical Methods -- Classification
+
+\vspace{0.05cm}
+
+- We have classified our data based on their cell phenotypes - anything other than undifferentiated is considered malicious:
+  + Benign: undifferentiated
+  + Malicious: Neural Crest-Like, Transitory, Melanocytic
+  
+- Split the data set into a train-test data (80/20 split).
+
+- Malicious is considered as the positive outcome.
+
+- Recursive partitioning of all 22 transcription factors and time point on the train data
+
+- We did not include rep, phenotype indicators, doses, and drug variables as they are irrelevant to the question.
+
+- Used the test data to produce a 2x2 confusion matrix along with calculations of accuracy, precision, sensitivity and specificity to evaluate the classification tree.
+
+
+
+## Results -- Classification, Decision Tree
+```{r size="footnotesize", echo=FALSE, fig.width=6, fig.height=3}
+data_use_grouped1 <- data_use %>% mutate(cell_phenotype=case_when(
+  cell_phenotype == "Undifferentiated" ~ "Benign",
+  cell_phenotype == "Neural Crest-Like" | cell_phenotype == "Transitory" | cell_phenotype == "Melanocytic" ~ "Malicious"
+))
+
+data_classify1 <- data_use_grouped1 %>% rowid_to_column()
+n1 <- nrow(data_classify1)
+train_ids1 <- sample(1:n1, size=round(0.8 * n1))
+train1 <- data_classify1 %>% filter(rowid %in% train_ids1)
+test1 <- data_classify1 %>% filter(!(rowid %in% train_ids1))
+tree1 <- rpart(cell_phenotype~ATF2 + ATF3 + ATF4 + ATF5 + Phospho_ATF1 + Phospho_ATF2 + Phospho_ATF4 + ATF6 + JunB + c_Jun + JunD + Phospho_S6 + Phospho_c_Jun + Phospho_Erk1 + Timepoint, data=train1)
+# predictive indicators need to be continuous?
+# Insignificant: Rep, phenotype indicators, Doses, Drugs
+tree1 %>% as.party() %>% plot(type="extended", gp=gpar(cex=0.4), tp_args=list(id=FALSE))
+```
+
+
+
+
+## Results -- Classification, Decision Tree (Continued)
+\vspace{0.05cm}
+- Timepoint is the root node
+
+- At time points 0.5h, 2h, 6h: ATF4 is the only TF that has a significant effect on the phenotypic outcomes
+  + Cells are considered benign if ATF4 < 2.8
+  
+- Time points beyond 6h: ATF5, Phospho ATF2, Phospho S6, and ATF4 are also significant
+  + Cells are considered benign if ATF5 < 3.062, Phospho_ATF2 < 2.397, Phosopho_S6 >= 3.054 and ATF4 < 2.838
+  + Cells are considered benign if ATF5 < 3.062, Phospho_ATF2 < 2.397, Phosopho_S6 < 3.054 and ATF4 < 2.616 and time point = 15h
+
+
+## Results -- Classification, Decision Tree (Continued)
+
+Confusion Matrix:
+
+:::columns
+::::column
+
+```{r size="footnotesize"}
+tree_test1 <- predict(tree1, type="class", 
+                      newdata=test1)
+test_cmatrix1 <- table(
+  `Predicted Condition`=tree_test1, 
+  `Actual Condition`=test1$cell_phenotype)
+test_cmatrix1
+```
+
+::::
+::::column
+
+```{r size="footnotesize", echo=FALSE}
+n_TN <- test_cmatrix1[1,1]
+n_FN <- test_cmatrix1[1,2]
+n_FP <- test_cmatrix1[2,1]
+n_TP <- test_cmatrix1[2,2]
+```
+
+```{r size="footnotesize"}
+#accuracy
+(n_TP + n_TN)/sum(test_cmatrix1)
+#precision
+(n_TP)/(n_TP+n_FP)
+#sensitivity
+(n_TP)/(n_TP+n_FN)
+#specificity
+(n_TN)/(n_TN+n_FP)
+```
+
+::::
+:::
+
+
+## Conclusion -- Question 4
+
+\vspace{0.05cm}
+Question 4: Can we predict cellular phenotypical outcomes (values/states) from transcription factors (TF)? -> Regression/Classification
+
+- ATF4 appears to be the most important TF to predict phenotypic outcomes. A general guideline for good homeostasis is that ATF4 levels are below 2.616.
+
+- As the confusion matrix indicates a high sensitivity, the classification tree captures much more of the true benign cancerous cells.
+
+- Due to the lower specificity, the classification tree has a relatively high false positive rate. We are much more aggressive with identifying malicious cancerous cells.
+
+- High sensitivity rate (True Positive Rate) than specificity (True Negative Rate) -> higher Type 1 error rate than Type 2 error rate
+
+- Due to the nature of cancer, we would rather have a **high false positive rate** than a **high false negative rate**. If a cell is incorrectly determined as malicious, we can correctly determine their health status through performing further examinations that come with cancer treatment.
+
+
+## Overall Conclusion
+
+- Cancerous cells are known for developing genetic mutations over time, which means cells may change the way they behave over time$\sf{._{[1]}}$
+
+- Across all three statistical methods, the 15 hour time point appears to be a critical point/anomaly in our data analysis. This suggests that the behavior of cells changes at this time point, which may be due to the effects of drugs reaching its peak. For the decision tree, a node appears at time point 15h for one branch, which suggests benign and malicious cells show different characteristics.
+
+
+## Limitations
+
+\vspace{0.05cm}
+
+**Two sample hypothesis**
+
+- No explicit separation of benign and malicious cells limit the results to be concluded only based on question 2.
+
+**Correlation estimation**
+
+- The relationship between two phenotypes may not be representative of the overall relationship between phenotypes. We have only computed correlation estimation between two different phenotypes, other phenotypes may show different trends that are more statistically significant. 
+
+## Limitations (Continued)
+
+**Classification tree**
+
+- We did not determine our own stopping criteria, so there’s an over reliance on how the computer generates the stopping rules.
+
+- For more extensive analysis, the four phenotypes could each act as separate variables to form a more precise prediction of the phenotype, instead of just a prediction between binary variables (benign and malicious).
+
+**Overall Limitation**
+
+- Assuming the sample is representative of the entire population
+
+- Limited time frame: experiment’s last timepoint was at 120 hours (5 days) cancer patients take Vem and Tram for up to 12 months in real life$\sf{._{[2]}}$
+
+- Since the cells need to be destroyed at each timepoint to measure the proteomic levels, we may be overlooking opportunities to observe potential differences in a prolonged experiment for each destroyed cell. This was deemed insignificant as the cancerous cells are taken from the same sample at each time point. However, this remains a valid limitation that can be addressed with further exploration.
+
+## References and Acknowledgements
+
+*The authors would like to thank TA Ramy Ayoub, TA Amin Banihashemi, and Professor Scott Schwartz for their helpful suggestions and comments that improved the presentation of this poster.*
+
+**Works Cited**
+
+[1] - Why haven't we cured cancer yet? our experts have the answers (no date) Why Haven't We Cured Cancer Yet? Our Experts Have The Answers. Available at: https://www.worldwidecancerresearch.org/news-opinion/2021/march/why-havent-we-cured-cancer-yet (Accessed: December 8, 2022). 
+
+[2] - “Zelboraf (Vemurafenib): Uses, Dosage, Side Effects, Interactions, Warning.” RxList, RxList, 11 Nov. 2021, https://www.rxlist.com/zelboraf-drug.htm#description. 
+
+
+
